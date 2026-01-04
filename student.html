@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Dashboard | Live Tracking</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/feather-icons"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f0f1b; }
+        .dashboard-card {
+            background-color: #1a1a2e;
+            border: 1px solid rgba(128, 0, 128, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(147, 51, 234, 0.1);
+            backdrop-filter: blur(4px);
+        }
+        #map { height: 160px; border-radius: 0.5rem; margin-top: 1rem; width: 100%; z-index: 10; }
+        .toggle-switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #3b3b6d; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background: linear-gradient(90deg, #8e2de2, #4a00e0); }
+        input:checked + .slider:before { transform: translateX(24px); }
+    </style>
+</head>
+<body class="text-gray-200">
+
+    <div class="min-h-screen flex">
+        <aside class="w-64 bg-[#1a1a2e] p-6 hidden lg:flex flex-col justify-between border-r border-purple-800/20">
+            <div>
+                <h1 class="text-2xl font-bold text-white mb-10 italic">StudentPortal</h1>
+                <nav class="space-y-4">
+                    <a href="#" class="flex items-center space-x-3 text-purple-400 bg-purple-900/20 p-3 rounded-lg"><i data-feather="home"></i><span>Dashboard</span></a>
+                    <a href="#" class="flex items-center space-x-3 text-gray-400 hover:text-white p-3 rounded-lg"><i data-feather="book-open"></i><span>Courses</span></a>
+                    <a href="#" class="flex items-center space-x-3 text-gray-400 hover:text-white p-3 rounded-lg"><i data-feather="map"></i><span>Live Map</span></a>
+                </nav>
+            </div>
+            <div id="sync-status" class="text-[10px] uppercase tracking-widest text-red-500 font-bold bg-red-500/10 p-2 rounded text-center border border-red-500/20">
+                Cloud Sync Offline
+            </div>
+        </aside>
+
+        <main class="flex-1 p-6 lg:p-10">
+            <header class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-10">
+                <div>
+                    <h2 class="text-3xl font-bold text-white">Welcome Back!</h2>
+                    <p class="text-gray-400 mt-1">Real-time telemetry and safety dashboard.</p>
+                </div>
+                <div class="flex items-center space-x-4 mt-4 sm:mt-0">
+                    <img src="https://placehold.co/40x40/8e2de2/white?text=A" alt="Profile" class="w-10 h-10 rounded-full border-2 border-purple-500">
+                </div>
+            </header>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8">
+                
+                <div class="dashboard-card rounded-2xl p-6 flex flex-col justify-between transform hover:scale-[1.02] transition-all">
+                    <div>
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-xl font-semibold text-white">Privacy Control</h3>
+                            <div class="p-3 bg-purple-900/30 rounded-lg"><i data-feather="shield" class="text-purple-400"></i></div>
+                        </div>
+                        <p class="text-gray-400 mt-2 text-sm">Disable this to stop sending your live coordinates to the cloud.</p>
+                    </div>
+                    <div class="mt-6 flex items-center justify-between">
+                        <span id="tracking-status" class="text-lg font-medium text-green-400">Broadcasting</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="tracking-toggle" checked>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="location-card" class="dashboard-card rounded-2xl p-6 transform hover:scale-[1.02] transition-all">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xl font-semibold text-white">Current Location</h3>
+                        <div class="p-3 bg-purple-900/30 rounded-lg"><i data-feather="map-pin" class="text-purple-400"></i></div>
+                    </div>
+                    <div id="map"></div>
+                    <div class="mt-4 flex justify-between text-xs text-gray-400 font-mono">
+                        <div>LAT: <span id="lat" class="text-purple-400">0.00</span></div>
+                        <div>LNG: <span id="lng" class="text-purple-400">0.00</span></div>
+                    </div>
+                </div>
+
+                <div class="dashboard-card rounded-2xl p-6 transform hover:scale-[1.02] transition-all">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xl font-semibold text-white">Device Status</h3>
+                        <div class="p-3 bg-purple-900/30 rounded-lg"><i data-feather="battery" class="text-purple-400"></i></div>
+                    </div>
+                    <div class="mt-8 text-center">
+                        <div id="battery-level" class="text-5xl font-bold text-green-400">--%</div>
+                        <p class="text-gray-400 mt-2 uppercase tracking-widest text-xs">Battery Remaining</p>
+                    </div>
+                    <div class="mt-6 bg-gray-800/50 rounded-lg p-3 text-sm">
+                        <div class="flex justify-between">
+                            <span class="text-gray-500">Status:</span>
+                            <span id="battery-charging" class="text-white">Standby</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        feather.replace();
+
+        // --- FIREBASE INITIALIZATION ---
+        const firebaseConfig = {
+            databaseURL: "https://student-tracker-c60b8-default-rtdb.asia-southeast1.firebasedatabase.app/"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+        const userId = "Archean_Mobile";
+
+        // Connection Monitor
+        const syncStatus = document.getElementById('sync-status');
+        database.ref(".info/connected").on("value", (snap) => {
+            if (snap.val() === true) {
+                syncStatus.innerText = "Cloud Sync Online";
+                syncStatus.className = "text-[10px] uppercase tracking-widest text-green-500 font-bold bg-green-500/10 p-2 rounded text-center border border-green-500/20";
+            } else {
+                syncStatus.innerText = "Cloud Sync Offline";
+                syncStatus.className = "text-[10px] uppercase tracking-widest text-red-500 font-bold bg-red-500/10 p-2 rounded text-center border border-red-500/20";
+            }
+        });
+
+        // --- MAP LOGIC ---
+        const map = L.map('map', { zoomControl: false }).setView([0, 0], 2);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '©OpenStreetMap'
+        }).addTo(map);
+
+        let marker, circle;
+
+        // --- STATE VARIABLES ---
+        let currentBattery = 0;
+        const trackingToggle = document.getElementById('tracking-toggle');
+        const trackingStatus = document.getElementById('tracking-status');
+        const locationCard = document.getElementById('location-card');
+
+        // --- GEOLOCATION & FIREBASE SYNC ---
+        if ("geolocation" in navigator) {
+            navigator.geolocation.watchPosition((pos) => {
+                const { latitude, longitude, accuracy } = pos.coords;
+                document.getElementById('lat').innerText = latitude.toFixed(4);
+                document.getElementById('lng').innerText = longitude.toFixed(4);
+
+                // Update Local Map
+                if (marker) {
+                    marker.setLatLng([latitude, longitude]);
+                    circle.setLatLng([latitude, longitude]).setRadius(accuracy);
+                } else {
+                    marker = L.marker([latitude, longitude]).addTo(map);
+                    circle = L.circle([latitude, longitude], { radius: accuracy, color: '#8e2de2' }).addTo(map);
+                    map.setView([latitude, longitude], 15);
+                }
+
+                // Push to Firebase ONLY if toggle is checked
+                if (trackingToggle.checked) {
+                    database.ref('tracking/' + userId).set({
+                        lat: latitude,
+                        lng: longitude,
+                        battery: currentBattery,
+                        timestamp: firebase.database.ServerValue.TIMESTAMP
+                    });
+                }
+            }, null, { enableHighAccuracy: true });
+        }
+
+        // --- BATTERY LOGIC ---
+        if ('getBattery' in navigator) {
+            navigator.getBattery().then(battery => {
+                const update = () => {
+                    currentBattery = Math.round(battery.level * 100);
+                    const el = document.getElementById('battery-level');
+                    el.innerText = currentBattery + "%";
+                    el.style.color = currentBattery < 20 ? "#f87171" : "#4ade80";
+                    document.getElementById('battery-charging').innerText = battery.charging ? "Charging" : "Unplugged";
+                };
+                update();
+                battery.onlevelchange = update;
+                battery.onchargingchange = update;
+            });
+        }
+
+        // --- UI TOGGLE LOGIC ---
+        trackingToggle.addEventListener('change', function() {
+            if (this.checked) {
+                trackingStatus.textContent = 'Broadcasting';
+                trackingStatus.className = 'text-lg font-medium text-green-400';
+                locationCard.style.filter = 'grayscale(0)';
+                locationCard.style.opacity = '1';
+            } else {
+                trackingStatus.textContent = 'Hidden';
+                trackingStatus.className = 'text-lg font-medium text-red-400';
+                locationCard.style.filter = 'grayscale(1)';
+                locationCard.style.opacity = '0.4';
+                // Optional: Clear cloud data when hidden
+                // database.ref('tracking/' + userId).remove();
+            }
+        });
+
+        // --- WAKE LOCK (Keep app running) ---
+        if ('wakeLock' in navigator) {
+            let wakeLock = null;
+            const requestWakeLock = async () => {
+                try {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                } catch (err) { console.warn("Wake Lock failed"); }
+            };
+            requestWakeLock();
+        }
+    </script>
+</body>
+</html>
